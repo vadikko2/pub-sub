@@ -1,0 +1,12 @@
+Source: int-status-daemon
+Section: python3
+Priority: extra
+Maintainer: somebody <somebody@int.spb.ru>
+Build-Depends: debhelper (>= 9), python3-dev, libkrb5-dev, python3-venv, dh-virtualenv, dh-systemd
+Standards-Version: 3.9.5
+
+Package: int-status-daemon
+Architecture: any
+Pre-Depends: dpkg (>= 1.16.1), python3-minimal, ${misc:Pre-Depends}
+Depends: ${python:Depends}, ${misc:Depends}, python3-venv, int-service-cache-updater
+Description: INT KOLOSM STATUS DAEMON

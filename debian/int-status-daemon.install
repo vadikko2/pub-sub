@@ -1,0 +1,10 @@
+run.py opt/pvtc/int-status-daemon
+config.py opt/pvtc/int-status-daemon
+config opt/pvtc/int-status-daemon
+runners opt/pvtc/int-status-daemon
+status_daemon opt/pvtc/int-status-daemon
+integration opt/pvtc/int-status-daemon
+debian/int-status-daemon.service  lib/systemd/system/
+debian/int-status-ws-server.service lib/systemd/system/
+debian/int-status-ssync.service lib/systemd/system/
+debian/int-status-rsync.service lib/systemd/system/

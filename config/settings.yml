@@ -1,0 +1,59 @@
+default:
+  SERVICE:
+    host: 0.0.0.0
+    port: 8003
+  SYNCHRONIZE: # WebSocket сервер междоменной синхронизации статусов
+    host: 0.0.0.0
+    port: 8004
+    configs:
+      host: suv1 # ЗАМЕНИТЬ
+      port: 8007
+      url: 'graphql'
+  BASE_REDIS: # адрес базового Redis, используемого инстансом демона (текущий домен)
+    host: suv1 # ЗАМЕНИТЬ
+    port: 6379
+    db: 0
+  PRIVILEGE_REDIS: # Redis хранилище сервиса привилегий
+    host: suv1 # ЗАМЕНИТЬ
+    port: 6379
+    db: 1
+  RETRY: 10 # время между попыткой повторного подключения сервиса статусов в Redis (секунды)
+  SYNC_RETRY: 10 # время между проверками наличия соединения серверами синхронизации (default 10)
+  BATCH_SIZE: 100 # максимальное число статусов, входящих в один пакет (default 100)
+  PRIVILEGE_CACHE_TTL: 60 # время жизни кэша привилегий в памяти (время через которое изменение привилегий применится. Нужно для того,
+  # чтобы не лазить на каждое сообщение в базу и проверять, ничего ли не изменилось.)
+  SERVICE_CACHE_UPDATER_STATE: # API для получения состояния кэша привилегий
+    host: suv1 # ЗАМЕНИТЬ
+    port: 8006
+  AUTH: # авторизация по kerberos
+    keytab: /etc/krb5.keytab #ЗАМЕНИЛ
+  LOGGING_BASE_CONFIG:
+    version: 1
+    disable_existing_loggers: false
+    formatters:
+      default:
+        format: "[int-status-daemon] %(levelname)-8s# %(filename)s[LINE:%(lineno)d]:  %(message)s"
+    handlers:
+#      syslog:
+#        class: logging.handlers.SysLogHandler
+#        level: DEBUG # не трогать
+#        address: /dev/log
+#        formatter: default
+#        facility: local0
+      console:
+        level: DEBUG # не трогать
+        class: logging.StreamHandler
+        formatter: default
+        stream: ext://sys.stdout
+      console_error:
+        level: ERROR # не трогать
+        class: logging.StreamHandler
+        formatter: default
+        stream: ext://sys.stderr
+    loggers:
+      default:
+        level: DEBUG
+        handlers: [ console ]
+    root:
+      level: DEBUG
+      handlers: [ console ]

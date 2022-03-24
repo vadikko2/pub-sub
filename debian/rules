@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+export DH_VIRTUALENV_INSTALL_ROOT=/opt/pvtc/
+
+%:
+	dh $@ --with python-virtualenv
+
+override_dh_auto_install:
+	dh_auto_install
+
+override_dh_virtualenv:
+	dh_virtualenv \
+                --python /usr/bin/python3 \
+                --preinstall pip==20.3.4 \
+                --builtin-venv \
+                --extra-pip-arg --trusted-host=172.16.254.115 \
+                --extra-pip-arg "--ignore-installed" \
+                --index-url http://172.16.254.115:8081/repository/pypi/simple/

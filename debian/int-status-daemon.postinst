@@ -1,0 +1,96 @@
+#!/bin/bash
+
+#DEBHELPER#
+
+
+function update_config_file() {
+
+    if [ -z "$1" ]; then
+      echo "error: no set config"
+      return -1
+    fi
+    local config_file="$1"
+    local from_config_file="$1"
+
+    if ! [ -f "${config_file}" ]; then
+      from_config_file="${config_file}.dpkg-new"   # see dpkg manual
+      if ! [ -f "${from_config_file}" ]; then
+        echo "error: config not found"
+        return -2
+      fi
+    fi
+
+    DOMAIN_DN=`ald-client status | grep -m 1 DOMAIN_DN= | sed "s/DOMAIN_DN=//g"`
+    SERVER=`ald-client status | grep -m 1 SERVER= | sed "s/SERVER=//g"`
+    HOSTNAME="$(hostname -f)"
+
+    if [ x"${config_file}" == x"${from_config_file}" ]; then
+      sed -i -e "s/@DOMAIN_DN@/${DOMAIN_DN}/g" \
+             -e "s/@SERVER@/${SERVER}/g"    \
+             -e "s/@HOSTNAME@/${HOSTNAME}/g"   \
+             "${config_file}"
+    else
+      sed  -e "s/@DOMAIN_DN@/${DOMAIN_DN}/g"   \
+           -e "s/@SERVER@/${SERVER}/g"      \
+           -e "s/@HOSTNAME@/${HOSTNAME}/g"     \
+           "${from_config_file}" > "${config_file}"
+    fi
+    return $?
+}
+
+function merge_keytab() {
+  if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+    echo "no params"
+    return -1
+  fi
+
+  local from_ktb="$1"
+  local to_ktb="$2"
+  local principal="$3"
+
+  if ! [ -f "${from_ktb}" ]; then
+    echo "error: from_ktb is empty"
+    return -2
+  fi
+
+  if ! [ -f "${to_ktb}" ]; then
+      echo "error: to_ktb is empty"
+      return -2
+  fi
+
+  klist -kt "${to_ktb}" | grep -q "${principal}"
+  ret=$?
+  if [ $ret -ne 0 ]; then  # principal is not found in keytab
+      echo -e "read_kt ${from_ktb}\nread_kt ${to_ktb}\nwrite_kt ${to_ktb}\nexit" | ktutil
+      ret=$?
+      if [ $ret -eq 0 ]; then
+        echo "success: keytab is update"
+      fi
+  fi
+
+}
+
+install_dir="/opt/pvtc/int-status-daemon/config"
+config_filename="settings.yml"
+config="${install_dir}/${config_filename}"
+default_ktb="/etc/krb5.keytab"
+apache_ktb="/etc/apache2/keytab"
+
+update_config_file "${config}"
+HttpPrincipal="HTTP/$(hostname -f)"
+merge_keytab "${apache_ktb}" "${default_ktb}" "${HttpPrincipal}"
+
+(systemctl enable int-status-daemon.service) || echo "int-status-daemon.service not enabled"
+(systemctl enable int-status-ws-server.service) || echo "int-status-ws-server.service not enabled"
+(systemctl enable int-status-rsync.service) || echo "int-status-rsync.service not enabled"
+(systemctl enable int-status-ssync.service) || echo "int-status-ssync.service not enabled"
+
+(systemctl stop int-status-daemon.service) || echo "int-status-daemon.service not stopped"
+(systemctl stop int-status-ws-server.service) || echo "int-status-ws-server.service not stopped"
+(systemctl stop int-status-rsync.service) || echo "int-status-rsync.service not stopped"
+(systemctl stop int-status-ssync.service) || echo "int-status-ssync.service not stopped"
+
+(systemctl start int-status-daemon.service) || echo "int-status-daemon.service not started"
+(systemctl start int-status-ws-server.service) || echo "int-status-ws-server.service not started"
+(systemctl start int-status-rsync.service) || echo "int-status-rsync.service not started"
+(systemctl start int-status-ssync.service) || echo "int-status-ssync.service not started"

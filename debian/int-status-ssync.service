@@ -1,0 +1,22 @@
+[Unit]
+Description=kolosm.statusd
+Wants=redis-server.service
+Wants=redis-server@6381.service
+Wants=int-service-cache-updater.service
+Wants=int-configs.service
+After=redis-server.service
+After=redis-server@6381.service
+After=syslog.target network.target
+After=int-service-cache-updater.service
+After=int-configs.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/pvtc/int-status-daemon
+ExecStart=/opt/pvtc/int-status-daemon/bin/python /opt/pvtc/int-status-daemon/run.py -ssync
+Restart=always
+CapabilitiesParsec=PARSEC_CAP_PRIV_SOCK PARSEC_CAP_IGNMACCAT PARSEC_CAP_IGNMACLVL
+
+[Install]
+WantedBy=multi-user.target
