@@ -34,12 +34,12 @@ default:
       default:
         format: "[int-status-daemon] %(levelname)-8s# %(filename)s[LINE:%(lineno)d]:  %(message)s"
     handlers:
-#      syslog:
-#        class: logging.handlers.SysLogHandler
-#        level: DEBUG # не трогать
-#        address: /dev/log
-#        formatter: default
-#        facility: local0
+     syslog:
+       class: logging.handlers.SysLogHandler
+       level: DEBUG # не трогать
+       address: /dev/log
+       formatter: default
+       facility: local0
       console:
         level: DEBUG # не трогать
         class: logging.StreamHandler
@@ -55,5 +55,5 @@ default:
         level: DEBUG
         handlers: [ console ]
     root:
-      level: DEBUG
-      handlers: [ console ]
+      level: INFO
+      handlers: [ syslog ]
