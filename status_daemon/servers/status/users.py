@@ -43,4 +43,5 @@ class User:
         user, _ = await KerberosAuthenticator.aauthenticate(request)
         # получаем uid пользователя
         uid = await privileges.get_uid_by_name(user)
+        await privileges.check_available(uid=uid)
         return cls(name=user, uid=uid, request=request)

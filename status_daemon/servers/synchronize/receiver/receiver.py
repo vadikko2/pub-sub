@@ -1,11 +1,12 @@
 import logging
-from asyncio import CancelledError
+from asyncio import CancelledError, get_event_loop
 
 from aiohttp import web, WSMsgType
 from aiohttp.abc import Request
 from aioredis import ConnectionClosedError, PoolClosedError
 
 from status_daemon.constants import PUB_PATTERN, LAST_PATTERN
+from status_daemon.exceptions import base_exception_handler, call_exception_handler
 from status_daemon.messages import Message, MessageParser
 from status_daemon.redis.redis import RedisController
 from status_daemon.servers.utils import flush_and_publish_statuses, has_subscribers
@@ -28,6 +29,16 @@ class SyncReceiver:
         self._suv_name = suv_name
         self._suv_last_status_pattern = pattern_to_key(self._suv_name, '*', pattern=LAST_PATTERN)
         self._suv_pub_pattern = pattern_to_key(self._suv_name, '*', pattern=PUB_PATTERN)
+        self._loop = get_event_loop()
+        self._loop.set_exception_handler(base_exception_handler)
+
+    @property
+    def loop(self):
+        return self._loop
+
+    @property
+    def redis(self):
+        return self._redis.pool
 
     async def __aenter__(self):
         await self._ws.prepare(self._request)
@@ -38,7 +49,7 @@ class SyncReceiver:
         # Обнуляем статусы абонентов с сервера и уведомляем об этом всех, кто подписан
         logging.info('Запущена очистка последних статусов встречных абонентов сервера %s', self._suv_name)
         await flush_and_publish_statuses(
-            redis=self._redis.pool,
+            redis=self.redis,
             last_pattern=self._suv_last_status_pattern,
         )
         logging.info('Окончено прослушивание сообщений сервера %s', self._suv_name)
@@ -60,12 +71,14 @@ class SyncReceiver:
                     if message_parser.is_package:  # если сообщение пакетное
                         message_items = message_parser.package_status_data
                         for message in message_items:
-                            await self._publish_received_status(message=message)
+                            self.loop.create_task(self._publish_received_status(message=message))
                     else:  # если сообщение одиночное
-                        await self._publish_received_status(message=message_parser.single_status_data)
+                        self.loop.create_task(
+                            self._publish_received_status(message=message_parser.single_status_data)
+                        )
                 except (ConnectionClosedError, PoolClosedError) as e:
                     raise ValueError(
-                        'Закрыто соединение с сервером Redis %s: %s' % (self._redis, e)
+                        'Закрыто соединение с сервером Redis %s: %s' % (self.redis, e)
                     )
                 except Exception as e:
                     raise ValueError(
@@ -74,7 +87,7 @@ class SyncReceiver:
         except CancelledError:
             pass
         except Exception as e:
-            logging.error('Закрыта синхронизация с сервером %s по причине: %s', self._suv_name, e)
+            raise ValueError('Закрыта синхронизация с сервером %s по причине: %s', self._suv_name, e)
 
     async def _publish_received_status(
             self, message: Message
@@ -83,19 +96,22 @@ class SyncReceiver:
         Отправляет полученный статус в очередь
         """
         try:
-            has_subs = await has_subscribers(redis=self._redis.pool, uid=message.uid)
+            has_subs = await has_subscribers(redis=self.redis, uid=message.uid)
+            pipe = self.redis.pipeline()
             if has_subs:
-                await self._redis.pool.publish(
+                pipe.publish(
                     channel=pattern_to_key(message.uid, pattern=self._suv_pub_pattern),
                     message=Message.create_message(message)
                 )
-            await self._redis.pool.set(
+            pipe.set(
                 key=pattern_to_key(message.uid, pattern=self._suv_last_status_pattern),
                 value=message.status.value
             )
+            await pipe.execute()
         except Exception as e:
-            raise ValueError(
-                'Ошибка при попытке опубликовать сообщения %s с сервера %s: %s' % (
+            call_exception_handler(
+                loop=self.loop,
+                message='Ошибка при попытке опубликовать сообщения %s с сервера %s: %s' % (
                     message, self._suv_name, e
                 )
             )

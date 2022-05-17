@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from asyncio import Queue, QueueEmpty
+from asyncio import Queue, QueueEmpty, get_event_loop
 from typing import Any, Dict, Iterable, Callable, Optional
 
 from aiohttp import ClientSession, ClientWebSocketResponse, ClientConnectionError
 from async_timeout import timeout
 
 from status_daemon import AsyncRunnableMixin, AsyncConnectableMixin
+from status_daemon.exceptions import call_exception_handler, base_exception_handler
 from status_daemon.messages import Message
 from status_daemon.servers.status.constants import SYNC_RETRY
 from status_daemon.servers.synchronize.sender.utils import default_callback
@@ -29,16 +30,27 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
         self._url = 'http://{}:{}/sync'.format(self._host, self._port)
         self._queue = None  # type: Optional[Queue]
         self._session = session  # type: ClientSession
+        self._loop = get_event_loop()
+        self._loop.set_exception_handler(base_exception_handler)
 
     @property
     def name(self):
         """Имя сервера, на который отсылаются сообщения"""
         return self._name
 
+    @property
+    def loop(self):
+        return self._loop
+
     async def put(self, message: Message):
         """Отправляет сообщение в очередь на отправку на сервер"""
         if isinstance(self._queue, Queue):
-            await self._queue.put(message)
+            try:
+                await self._queue.put(message)
+            except Exception as e:
+                call_exception_handler(
+                    loop=self.loop, message='Ошибка записи сообщения %s в очередь для синхронизации: %s' % (message, e)
+                )
 
     async def _listen_queue(self, ws_: ClientWebSocketResponse):
         """Прослушивает очередь"""
@@ -51,12 +63,12 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                     except QueueEmpty:
                         continue
                     # отправка сообщения на встречный сервер
-                    await self._send_message(ws_, Message.create_message(message))
+                    self.loop.create_task(self._send_message(ws_, Message.create_message(message)))
             except asyncio.TimeoutError:
                 # проверяем не потерялась ли связь с сервером
                 if ws_._conn.closed:
                     raise ClientConnectionError(
-                        'Разрыв связи с сервером %s (%s)' % (self._name, self._url)
+                        'Разрыв связи с сервером %s (%s)' % (self.name, self._url)
                     )
 
     async def _send_message(self, ws_: ClientWebSocketResponse, str_message: str):
@@ -65,12 +77,13 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
             await ws_.send_str(data=str_message)
             logging.debug(
                 'Сообщение %s успешно передано на сервер %s (%s)',
-                str, self._name, self._url
+                str_message, self.name, self._url
             )
         except Exception as e:
-            logging.error(
-                'Ошибка при попытке отправить сообщение %s на сервер %s (%s): %s',
-                str_message, self._name, self._url, e
+            call_exception_handler(
+                loop=self.loop,
+                message='Ошибка при попытке отправить сообщение %s на сервер %s (%s): %s' %
+                        (str_message, self.name, self._url, e)
             )
 
     async def listen(self):
@@ -87,23 +100,23 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                     )
                     async for message in messages:
                         try:
-                            await self._send_message(ws_, Message.create_package(message))
+                            self.loop.create_task(self._send_message(ws_, Message.create_package(message)))
                         except Exception as e:
                             logging.error(
                                 'Ошибка при пересылке сообщения %s на сервер %s (%s): %s',
-                                message, self._name, self._url, e
+                                message, self.name, self._url, e
                             )
                 except Exception as e:
                     raise ValueError(
                         'Ошибка при выполнении callback-а %s для получения данных '
                         'при установлении связи с сервером %s (%s): %s' % (
-                            self._RECONNECT_CALLBACK.__name__, self._name, self._url, e
+                            self._RECONNECT_CALLBACK.__name__, self.name, self._url, e
                         )
                     )
 
                 logging.info(
                     'Запущено перенаправление статусов на сервер %s (%s)',
-                    self._name, self._url
+                    self.name, self._url
                 )
                 await self._listen_queue(ws_)
         except Exception as e:
@@ -112,10 +125,10 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                     self._queue.get_nowait()
                     self._queue.task_done()
                 self._queue = None
-                logging.debug('Очередь для сервера %s очищена', self._name)
+                logging.debug('Очередь для сервера %s очищена', self.name)
             raise ValueError(
                 'Отсутствует соединение с сервером %s (%s): %s' %
-                (self._name, self._url, e)
+                (self.name, self._url, e)
             )
 
     @classmethod
@@ -143,8 +156,9 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
         try:
             await self.listen()
         except Exception as e:
-            raise ValueError(
-                'Ошибка при перенаправлении статусов на сервер %s (%s): %s' % (
-                    self._name, self._url, e
-                )
+            logging.error(
+                'Ошибка при перенаправлении статусов на сервер %s (%s): %s',
+                self.name, self._url, e
             )
+        finally:
+            raise ValueError('Завершение перенаправления статусов на сервер %s (%s)...' % (self.name, self._url))

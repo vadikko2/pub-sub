@@ -1,6 +1,5 @@
 """GSS аутентификация"""
 
-import os
 import socket
 from typing import Tuple, Any
 
@@ -16,22 +15,16 @@ from config import settings
 from status_daemon.auth import Authenticator
 from status_daemon.auth.exceptions import GSSUnauthorizedException
 
-SERVICE_NAME = 'HTTP@{}'.format(socket.getfqdn())
-
-KEYTAB = settings.AUTH.keytab
-
 
 class KerberosAuthenticator(Authenticator):
     """GSS аутентификация через kerberos"""
 
+    SERVICE_NAME = 'HTTP@{}'.format(socket.getfqdn())
+    KEYTAB = settings.AUTH.keytab
+
     @staticmethod
     def authenticate(request: web.Request) -> Any:
         raise NotImplemented
-
-    @staticmethod
-    async def setup(_):
-        """Добавляет keytab в environ"""
-        os.environ["KRB5_KTNAME"] = KEYTAB
 
     @staticmethod
     async def aauthenticate(request: web.Request) -> Tuple[str, Any]:
@@ -50,7 +43,7 @@ class KerberosAuthenticator(Authenticator):
         gss_context = None
         try:
             # Initialize kerberos context
-            rc_, gss_context = authGSSServerInit(SERVICE_NAME)
+            rc_, gss_context = authGSSServerInit(KerberosAuthenticator.SERVICE_NAME)
 
             if rc_ != AUTH_GSS_COMPLETE:
                 raise GSSUnauthorizedException(

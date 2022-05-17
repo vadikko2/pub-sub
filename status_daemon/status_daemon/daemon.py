@@ -10,7 +10,7 @@ from status_daemon import BlockingRunnableMixin
 from status_daemon.constants import (
     WISH_PATTERN, PUB_PATTERN, SUB_PATTERN
 )
-from status_daemon.exceptions import MessageDecodeException
+from status_daemon.exceptions import MessageDecodeException, base_exception_handler, call_exception_handler
 from status_daemon.messages import MessageParser, Message
 from status_daemon.redis.redis import RedisController
 from status_daemon.utils import pattern_to_key, extract_info_from_key
@@ -21,14 +21,19 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
 
     def __init__(self, redis: RedisController):
         self.loop = get_event_loop()
+        self.loop.set_exception_handler(base_exception_handler)
         self._redis = redis  # type: RedisController
+
+    @property
+    def redis(self):
+        return self._redis.pool
 
     async def _run_daemon(self):
         """
         Перенаправляет сообщения от отправителя ко всем получателя, перечисленным в self.wishlist
         """
         logging.info('Запущено перенаправление статусов')
-        channel, = await self._redis.pool.psubscribe(
+        channel, = await self.redis.psubscribe(
             pattern=PUB_PATTERN
         )  # type: Channel
 
@@ -55,24 +60,27 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
                         logging.error('Ошибка при разборе сообщения %s из очереди %s: %r', message, key, e)
                         continue
 
-                    await self.send_status(
+                    self.loop.create_task(self.send_status(
                         sender=sender,
                         message=message
-                    )
+                    ))
 
                 except asyncio.TimeoutError:
                     pass
         except Exception as e:
-            raise ValueError(
-                'Ошибка при маршрутизации %r: %r' % (
+            call_exception_handler(
+                loop=self.loop,
+                message='Ошибка при маршрутизации %r: %r' % (
                     self._redis, e
                 )
             )
+            return
         finally:
-            if not self._redis.pool.closed:
-                await self._redis.pool.punsubscribe(pattern=PUB_PATTERN)
-            raise ValueError(
-                'Прослушивание %s остановлено.' % channel.name.decode(encoding='utf-8')
+            if not self.redis.closed:
+                await self.redis.punsubscribe(pattern=PUB_PATTERN)
+            call_exception_handler(
+                loop=self.loop,
+                message='Прослушивание %s остановлено.' % channel.name.decode(encoding='utf-8')
             )
 
     async def send_status(self, sender: str, message: Any):
@@ -86,19 +94,23 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
                 pattern=SUB_PATTERN
             )
 
-            try:
-                await self._redis.pool.publish(pattern, message)
-                logging.debug('Сообщение %s отправлено в очередь %s', message, pattern)
-            except Exception as e:
-                logging.error(
-                    'Ошибка при публикации сообщения %s в очередь %s: %s',
-                    message, pattern, e
-                )
+            self.loop.create_task(self.send_to_receiver(pattern=pattern, message=message))
+
+    async def send_to_receiver(self, pattern: str, message: Any):
+        try:
+            await self.redis.publish(pattern, message)
+        except Exception as e:
+            call_exception_handler(
+                loop=self.loop,
+                message='Ошибка при публикации сообщения %s в очередь %s: %s' % (message, pattern, e)
+            )
+        else:
+            logging.debug('Сообщение %s отправлено в очередь %s', message, pattern)
 
     async def load_wishlists(self, sender: str) -> Set[str]:
         """Выгружает wishlist из Redis"""
         key = pattern_to_key(sender, pattern=WISH_PATTERN)
-        wishlist = await self._redis.pool.smembers(key)
+        wishlist = await self.redis.smembers(key)
         result = set()
         if wishlist:
             result.update(wishlist)

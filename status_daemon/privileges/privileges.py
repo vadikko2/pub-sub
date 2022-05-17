@@ -1,12 +1,15 @@
-from typing import Iterable, Optional
+from typing import Optional
 
 from aiohttp import ClientSession
+from async_generator import async_generator, yield_
 from cachetools import TTLCache
 
 from config import settings
 from status_daemon import AsyncConnectableMixin
 from status_daemon.constants import STATE
+from status_daemon.exceptions import AvailableException
 from status_daemon.redis.redis import RedisController
+from status_daemon.servers.status.constants import BATCH_SIZE
 from status_daemon.utils import pattern_to_key
 
 
@@ -19,12 +22,19 @@ class Privileges(AsyncConnectableMixin):
     # Redis хранилище сервиса привилегий
     DNAME_PATTERN = "DNAME@*@"  # паттерн соответствия доменного имени UID-у
     LOCAL_USERS_PATTERN = "LOCAL_USERS"  # паттерн набора локальных пользователей
+    STS_AVAILABLE_PATTERN = "STS@*@"  # паттерн доступа к сервису статусов
+    NOT_AVAILABLE = 'FALSE'
+
     PRIVILEGE_TTL = int(settings.PRIVILEGE_CACHE_TTL or 60)
 
     def __init__(self, redis: RedisController, pr_cache: TTLCache, is_local_cache: TTLCache):
         self._pr_cache = pr_cache
         self._is_local_cache = is_local_cache
         self._redis = redis  # type: RedisController
+
+    @property
+    def redis(self):
+        return self._redis.pool
 
     @classmethod
     async def connect(
@@ -57,13 +67,13 @@ class Privileges(AsyncConnectableMixin):
 
         if subscriber_uid not in self._pr_cache[publisher_uid]:
             publisher_key = self.USERSACL_PATTERN.replace('*', publisher_uid)
-            publisher_out_pr = await self._redis.pool.hget(key=publisher_key, field=subscriber_uid) or 0
+            publisher_out_pr = await self.redis.hget(key=publisher_key, field=subscriber_uid) or 0
             out_bit = self._check_bit(int(publisher_out_pr), self.OUT_STS)  # type: bool
             if not out_bit:  # отправлять нельзя - дальше можно не проверять
                 self._pr_cache[publisher_uid][subscriber_uid] = out_bit
             else:  # проверяем что там на входящих у получателя
                 subscriber_key = self.USERSACL_PATTERN.replace('*', subscriber_uid)
-                subscriber_in_pr = await self._redis.pool.hget(key=subscriber_key, field=publisher_uid) or 0
+                subscriber_in_pr = await self.redis.hget(key=subscriber_key, field=publisher_uid) or 0
                 in_bit = self._check_bit(int(subscriber_in_pr), self.IN_STS)
                 self._pr_cache[publisher_uid][subscriber_uid] = out_bit and in_bit
         return self._pr_cache[publisher_uid][subscriber_uid]
@@ -71,26 +81,32 @@ class Privileges(AsyncConnectableMixin):
     async def get_uid_by_name(self, user: str):
         """Возвращает uid по имени"""
         key = pattern_to_key(user, pattern=self.DNAME_PATTERN)
-        uid = await self._redis.pool.get(key=key)
+        uid = await self.redis.get(key=key)
         if not uid:
-            raise ValueError('В хранилище привилегий отсутствует ключ {}'.format(uid))
+            raise ValueError('В хранилище привилегий отсутствует информация об абоненте {}'.format(user))
         return uid
 
     async def is_local(self, uid: str) -> bool:
         """Проверяет пользователя на локальность"""
         if uid not in self._is_local_cache:
-            is_local = await self._redis.pool.sismember(
+            is_local = await self.redis.sismember(
                 key=self.LOCAL_USERS_PATTERN, member=uid
-            )  # type: bool
+            )  # type: int
             self._is_local_cache[uid] = (is_local == 1)
         return self._is_local_cache[uid]
 
-    async def get_local(self) -> Iterable[str]:
+    @async_generator
+    async def get_local(self):
         """Возвращает набор всех локальных абонентов"""
-        local_users = await self._redis.pool.smembers(key=self.LOCAL_USERS_PATTERN) or set()
-        for user in local_users:
-            self._is_local_cache[user] = True
-        return local_users
+        cursor = b'0'
+        while cursor:
+            cursor, members = await self.redis.sscan(
+                cursor=cursor, key=self.LOCAL_USERS_PATTERN, match='*', count=BATCH_SIZE
+            )
+            if not members: continue
+            for user in members:
+                self._is_local_cache[user] = True
+            await yield_(members)
 
     @staticmethod
     async def check_cache_ready(
@@ -106,3 +122,10 @@ class Privileges(AsyncConnectableMixin):
                     return STATE(int(await resp.text()))
         except Exception:
             return STATE.not_ready
+
+    async def check_available(self, uid: str) -> None:
+        """Проверяет доступ абонента к адресной книге"""
+        key = pattern_to_key(uid, pattern=Privileges.STS_AVAILABLE_PATTERN)
+        value = await self.redis.get(key)
+        if value == Privileges.NOT_AVAILABLE:
+            raise AvailableException('Абонент %s не имеет доступа к сервису статусов' % uid)

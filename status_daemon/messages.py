@@ -56,7 +56,7 @@ class Message:
         try:
             status = Status(status_field) if status_field else None  # type: Optional[Status]
         except Exception as e:
-            raise ValueError('Ошибка разбора значения статуса %s: %r' % (status_field, e))
+            raise ValueError('Ошибка разбора значения статуса %s: %s' % (status_field, e))
 
         # извлекаем перечен команд
         events = {
@@ -137,7 +137,7 @@ class MessageParser:
                     result.add(Message.extract(item))
                 except Exception as e:
                     logging.error(
-                        'Ошибка извлечения данных из элемента сообщения %r: %r',
+                        'Ошибка извлечения данных из элемента сообщения %r: %s',
                         item, e
                     )
             return result

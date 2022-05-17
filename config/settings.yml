@@ -6,15 +6,15 @@ default:
     host: 0.0.0.0
     port: 8004
     configs:
-      host: suv1 # ЗАМЕНИТЬ
+      host: localhost # ЗАМЕНИТЬ
       port: 8007
       url: 'graphql'
   BASE_REDIS: # адрес базового Redis, используемого инстансом демона (текущий домен)
-    host: suv1 # ЗАМЕНИТЬ
+    host: localhost # ЗАМЕНИТЬ
     port: 6379
     db: 0
   PRIVILEGE_REDIS: # Redis хранилище сервиса привилегий
-    host: suv1 # ЗАМЕНИТЬ
+    host: localhost # ЗАМЕНИТЬ
     port: 6379
     db: 1
   RETRY: 10 # время между попыткой повторного подключения сервиса статусов в Redis (секунды)
@@ -23,7 +23,7 @@ default:
   PRIVILEGE_CACHE_TTL: 60 # время жизни кэша привилегий в памяти (время через которое изменение привилегий применится. Нужно для того,
   # чтобы не лазить на каждое сообщение в базу и проверять, ничего ли не изменилось.)
   SERVICE_CACHE_UPDATER_STATE: # API для получения состояния кэша привилегий
-    host: suv1 # ЗАМЕНИТЬ
+    host: localhost # ЗАМЕНИТЬ
     port: 8006
   AUTH: # авторизация по kerberos
     keytab: /etc/krb5.keytab #ЗАМЕНИЛ
@@ -34,12 +34,12 @@ default:
       default:
         format: "[int-status-daemon] %(levelname)-8s# %(filename)s[LINE:%(lineno)d]:  %(message)s"
     handlers:
-     syslog:
-       class: logging.handlers.SysLogHandler
-       level: DEBUG # не трогать
-       address: /dev/log
-       formatter: default
-       facility: local0
+      syslog:
+        class: logging.handlers.SysLogHandler
+        level: DEBUG # не трогать
+        address: /dev/log
+        formatter: default
+        facility: local0
       console:
         level: DEBUG # не трогать
         class: logging.StreamHandler

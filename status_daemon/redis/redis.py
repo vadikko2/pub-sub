@@ -65,16 +65,16 @@ class RedisController(AsyncConnectableMixin):
         return cls(redis_pool=pool)
 
     async def disconnect(self):
-        await RedisController.close_redis_pool(redis=self._redis)
+        await RedisController.close_redis_pool(redis=self.pool)
 
     async def flush_keys_by_pattern(self, pattern: str = '*'):
         """Очищает ключи по паттерну"""
         cursor = b'0'
         while cursor:
-            cursor, keys = await self._redis.scan(cursor=cursor, match=pattern)
+            cursor, keys = await self.pool.scan(cursor=cursor, match=pattern)
             if keys:
                 try:
-                    await self._redis.delete(*keys)
+                    await self.pool.delete(*keys)
                 except Exception as e:
                     logging.error(
                         'Ошибка при попытке очистить значения по ключами %s: %s',
