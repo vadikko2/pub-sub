@@ -1,11 +1,11 @@
 """Handler сервиса статусов"""
 
-import logging
 from asyncio import gather, CancelledError
 from typing import Optional
 
 from aiohttp import web
 
+from status_daemon import Logger
 from status_daemon.auth.exceptions import UnauthorizedException
 from status_daemon.exceptions import AvailableException
 from status_daemon.privileges.privileges import Privileges
@@ -59,9 +59,9 @@ async def pubsub_handler(request: web.Request):
     except AvailableException:
         return raise_available_error(user=user)
     except CancelledError:
-        logging.info('Закрыто соединение с абонентом %s', user or request.remote)
+        Logger.info('Закрыто соединение с абонентом %s', user or request.remote)
     except Exception as e:
-        logging.error('Завершение соединения с абонентом %s по причине: %s', user or request.remote, e)
+        Logger.error('Завершение соединения с абонентом %s по причине: %s', user or request.remote, e)
     finally:
         if isinstance(redis, RedisController):
             await redis.disconnect()

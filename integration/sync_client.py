@@ -1,4 +1,3 @@
-import logging
 import logging.config
 from asyncio import get_event_loop, sleep
 from datetime import datetime, timedelta
@@ -8,6 +7,7 @@ from typing import List
 from async_generator import async_generator, yield_
 
 from config import settings
+from status_daemon import Logger
 from status_daemon.messages import Message
 from status_daemon.servers.status.constants import BATCH_SIZE
 from status_daemon.servers.status.utils import divide_to_equal_batches
@@ -21,7 +21,7 @@ logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 
 async def exception_handler(_, error):
-    logging.error('Ошибка перенаправления сообщений на сервер: %s', error)
+    Logger.error('Ошибка перенаправления сообщений на сервер: %s', error)
 
 
 async def send_messages(
@@ -53,7 +53,7 @@ async def reconnect_callback(uids: List[str]):
             try:
                 await yield_(batch)
             except Exception as e:
-                logging.error('Ошибка при попытке формирования сообщения из батча {}: {}'.format(batch, e))
+                Logger.error('Ошибка при попытке формирования сообщения из батча {}: {}'.format(batch, e))
                 continue
     except Exception as e:
         raise ValueError(

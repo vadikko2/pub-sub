@@ -1,5 +1,6 @@
-import logging
 from asyncio import AbstractEventLoop
+
+from status_daemon import Logger
 
 
 class DropTaskException(Exception):
@@ -20,7 +21,7 @@ class AvailableException(Exception):
 
 def base_exception_handler(_, context):
     err_msg = context.get('message')
-    logging.error(err_msg)
+    Logger.error(err_msg)
 
 
 def call_exception_handler(loop: AbstractEventLoop, message: str):

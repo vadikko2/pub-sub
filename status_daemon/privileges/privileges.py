@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Optional
 
 from aiohttp import ClientSession
@@ -6,7 +7,6 @@ from cachetools import TTLCache
 
 from config import settings
 from status_daemon import AsyncConnectableMixin
-from status_daemon.constants import STATE
 from status_daemon.exceptions import AvailableException
 from status_daemon.redis.redis import RedisController
 from status_daemon.servers.status.constants import BATCH_SIZE
@@ -23,9 +23,14 @@ class Privileges(AsyncConnectableMixin):
     DNAME_PATTERN = "DNAME@*@"  # паттерн соответствия доменного имени UID-у
     LOCAL_USERS_PATTERN = "LOCAL_USERS"  # паттерн набора локальных пользователей
     STS_AVAILABLE_PATTERN = "STS@*@"  # паттерн доступа к сервису статусов
-    NOT_AVAILABLE = 'FALSE'
+    AVAILABLE = 'TRUE'
 
     PRIVILEGE_TTL = int(settings.PRIVILEGE_CACHE_TTL or 60)
+
+    class STATE(Enum):
+        """Готовность привилегий"""
+        ready = 1
+        not_ready = 0
 
     def __init__(self, redis: RedisController, pr_cache: TTLCache, is_local_cache: TTLCache):
         self._pr_cache = pr_cache
@@ -112,20 +117,20 @@ class Privileges(AsyncConnectableMixin):
     async def check_cache_ready(
             host=settings.SERVICE_CACHE_UPDATER_STATE.host,
             port=settings.SERVICE_CACHE_UPDATER_STATE.port
-    ) -> STATE:
+    ) -> bool:
         """Проверяет готовность кэша (обращается к сервису int-service-cache-updater)"""
         try:
             async with ClientSession() as session:
                 async with session.get(
                         'http://{host}:{port}/state'.format(host=host, port=port)
                 ) as resp:
-                    return STATE(int(await resp.text()))
+                    return Privileges.STATE(int(await resp.text())) == Privileges.STATE.ready
         except Exception:
-            return STATE.not_ready
+            return False
 
     async def check_available(self, uid: str) -> None:
         """Проверяет доступ абонента к адресной книге"""
         key = pattern_to_key(uid, pattern=Privileges.STS_AVAILABLE_PATTERN)
         value = await self.redis.get(key)
-        if value == Privileges.NOT_AVAILABLE:
+        if value != Privileges.AVAILABLE:
             raise AvailableException('Абонент %s не имеет доступа к сервису статусов' % uid)

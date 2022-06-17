@@ -1,14 +1,9 @@
-import logging
 from asyncio import get_event_loop
 from typing import Set, Optional, Iterable
 
 from aiohttp import WSMsgType, web
 
-from status_daemon import AsyncRunnableMixin
-from status_daemon.constants import (
-    WISH_PATTERN, LOCAL_PUB_PATTERN,
-    LOCAL_LAST_PATTERN, LAST_PATTERN
-)
+from status_daemon import AsyncRunnableMixin, Logger
 from status_daemon.exceptions import call_exception_handler, base_exception_handler
 from status_daemon.messages import MessageParser, Message
 from status_daemon.privileges.privileges import Privileges
@@ -36,7 +31,7 @@ class Publisher(AsyncRunnableMixin):
         self._privileges = privileges  # type: Privileges
         self._user = user  # type: User
 
-        self._pub_channel_name = pattern_to_key(self.user.uid, pattern=LOCAL_PUB_PATTERN)
+        self._pub_channel_name = pattern_to_key(self.user.uid, pattern=RedisController.LOCAL_PUB_PATTERN)
 
         self._loop = get_event_loop()
         self._loop.set_exception_handler(base_exception_handler)
@@ -50,7 +45,7 @@ class Publisher(AsyncRunnableMixin):
         await self._close_connection_callback()
         if not self._ws.closed:
             await self._ws.close()
-        logging.info('Окончено прослушивание сообщений от пользователя %r', self.user)
+        Logger.info('Окончено прослушивание сообщений от пользователя %r', self.user)
 
     @property
     def user(self):
@@ -76,7 +71,7 @@ class Publisher(AsyncRunnableMixin):
                 if has_subs:
                     pipe.publish(channel=self._pub_channel_name, message=msg)
                 pipe.set(
-                    key=pattern_to_key(self.user.uid, pattern=LOCAL_LAST_PATTERN),
+                    key=pattern_to_key(self.user.uid, pattern=RedisController.LOCAL_LAST_PATTERN),
                     value=message.status.value
                 )
                 await pipe.execute()
@@ -110,9 +105,9 @@ class Publisher(AsyncRunnableMixin):
             # отсылаем последний статус подписантам
             await self._publish(message=Message(status=status))
             await self._clear_user_subscriptions()
-            logging.info('Остановлено прослушивание сообщений от %r', self.user)
+            Logger.info('Остановлено прослушивание сообщений от %r', self.user)
         except Exception as e:
-            logging.error(
+            Logger.error(
                 'Некорректное завершение закрытия соединения с абонентом %r: %s',
                 self.user, e
             )
@@ -122,29 +117,29 @@ class Publisher(AsyncRunnableMixin):
         cursor = b'0'
         try:
             while cursor:
-                cursor, wish_keys = await self.redis.scan(cursor=cursor, match=WISH_PATTERN)
+                cursor, wish_keys = await self.redis.scan(cursor=cursor, match=RedisController.WISH_PATTERN)
                 if wish_keys:
                     wish_pipe = self.redis.pipeline()
                     for key in wish_keys:
                         try:
                             wish_pipe.srem(key=key, member=self.user.uid)
                         except Exception as e:
-                            logging.error(
+                            Logger.error(
                                 'Ошибка при попытке удалить абонента %r из подписки %s: %s',
                                 self.user, key, e
                             )
-                    self.loop.create_task(wish_pipe.execute())
+                    await wish_pipe.execute()
         except Exception as e:
-            logging.error(
+            Logger.error(
                 'Ошибка при очистке подписок пользователя %r: %s',
                 self.user, e
             )
         else:
-            logging.info('Подписки абонента %r очищены', self.user)
+            Logger.info('Подписки абонента %r очищены', self.user)
 
     async def run(self):
         """Прослушивает WS на предмет сообщений от клиента"""
-        logging.info(
+        Logger.info(
             'Запущено прослушивание сообщений от пользователя %r', self.user
         )
         async for msg in self._ws:  # type: WSMsgType
@@ -171,7 +166,7 @@ class Publisher(AsyncRunnableMixin):
             return
 
         else:
-            logging.debug(
+            Logger.debug(
                 'Пользователь %r опубликовал новое сообщение %s', self.user, msg.data
             )
 
@@ -206,23 +201,23 @@ class Publisher(AsyncRunnableMixin):
 
         unsubscribe_pipe = self.redis.pipeline()
         for publisher in unsubscribe_list:
-            wishlist_key = pattern_to_key(publisher, pattern=WISH_PATTERN)
+            wishlist_key = pattern_to_key(publisher, pattern=RedisController.WISH_PATTERN)
 
             # Пытаемся удалить запись из таблицы wishlist
             try:
                 unsubscribe_pipe.srem(wishlist_key, self.user.uid)
             except Exception as e:
-                logging.error(
+                Logger.error(
                     'Ошибка при попытке удаления записи %s из %s: %s',
                     self.user.uid, wishlist_key, e
                 )
             else:
-                logging.debug('Из %s удалена запись %s', wishlist_key, self.user.uid)
+                Logger.debug('Из %s удалена запись %s', wishlist_key, self.user.uid)
         self.loop.create_task(unsubscribe_pipe.execute())
 
         subscribe_pipe = self.redis.pipeline()
         for publisher in subscribe_list:
-            wishlist_key = pattern_to_key(publisher, pattern=WISH_PATTERN)
+            wishlist_key = pattern_to_key(publisher, pattern=RedisController.WISH_PATTERN)
 
             # пытаемся добавить новую запись в wishlist
             try:
@@ -234,7 +229,7 @@ class Publisher(AsyncRunnableMixin):
                     )
                 )
             else:
-                logging.debug('В %s добавлена завись %s.', wishlist_key, self.user.uid)
+                Logger.debug('В %s добавлена завись %s.', wishlist_key, self.user.uid)
         self.loop.create_task(subscribe_pipe.execute())
 
     async def _send_last_statuses(
@@ -269,7 +264,7 @@ class Publisher(AsyncRunnableMixin):
                             status = Status.UNKNOWN
                         statuses_list.add(Message(status=status, uid=uid))
                     except Exception as e:
-                        logging.error(
+                        Logger.error(
                             'Ошибка формирования последнего статуса %s абонента %s: %s', status, uid, e
                         )
                         statuses_list.add(Message(status=Status.UNKNOWN, uid=uid))
@@ -322,14 +317,14 @@ class Publisher(AsyncRunnableMixin):
                         (self.user, message, e)
             )
         else:
-            logging.debug(
+            Logger.debug(
                 'Пользователю %r отправлено сообщение %s',
                 self.user, message
             )
 
     async def _get_last_status_key(self, uid: str) -> Optional[str]:
         try:
-            last_status_pattern = pattern_to_key('*', uid, pattern=LAST_PATTERN)
+            last_status_pattern = pattern_to_key('*', uid, pattern=RedisController.LAST_PATTERN)
             keys = await self.redis.keys(pattern=last_status_pattern)
             if not keys:
                 return None
@@ -343,7 +338,7 @@ class Publisher(AsyncRunnableMixin):
     async def _get_last_status_keys(self, uids: Iterable[str]) -> Iterable[Optional[str]]:
         keys_pipe = self.redis.pipeline()
         for uid in uids:
-            last_status_pattern = pattern_to_key('*', uid, pattern=LAST_PATTERN)
+            last_status_pattern = pattern_to_key('*', uid, pattern=RedisController.LAST_PATTERN)
             keys_pipe.keys(pattern=last_status_pattern)
         keys_candidates = await keys_pipe.execute()
 

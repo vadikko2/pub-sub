@@ -1,11 +1,10 @@
-import logging
 from asyncio import CancelledError, get_event_loop
 
 from aiohttp import web, WSMsgType
 from aiohttp.abc import Request
 from aioredis import ConnectionClosedError, PoolClosedError
 
-from status_daemon.constants import PUB_PATTERN, LAST_PATTERN
+from status_daemon import Logger
 from status_daemon.exceptions import base_exception_handler, call_exception_handler
 from status_daemon.messages import Message, MessageParser
 from status_daemon.redis.redis import RedisController
@@ -27,8 +26,8 @@ class SyncReceiver:
         self._redis = redis  # type: RedisController
         self._ws = web.WebSocketResponse(autoping=False)
         self._suv_name = suv_name
-        self._suv_last_status_pattern = pattern_to_key(self._suv_name, '*', pattern=LAST_PATTERN)
-        self._suv_pub_pattern = pattern_to_key(self._suv_name, '*', pattern=PUB_PATTERN)
+        self._suv_last_status_pattern = pattern_to_key(self._suv_name, '*', pattern=RedisController.LAST_PATTERN)
+        self._suv_pub_pattern = pattern_to_key(self._suv_name, '*', pattern=RedisController.PUB_PATTERN)
         self._loop = get_event_loop()
         self._loop.set_exception_handler(base_exception_handler)
 
@@ -47,16 +46,16 @@ class SyncReceiver:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         # Обнуляем статусы абонентов с сервера и уведомляем об этом всех, кто подписан
-        logging.info('Запущена очистка последних статусов встречных абонентов сервера %s', self._suv_name)
+        Logger.info('Запущена очистка последних статусов встречных абонентов сервера %s', self._suv_name)
         await flush_and_publish_statuses(
             redis=self.redis,
             last_pattern=self._suv_last_status_pattern,
         )
-        logging.info('Окончено прослушивание сообщений сервера %s', self._suv_name)
+        Logger.info('Окончено прослушивание сообщений сервера %s', self._suv_name)
 
     async def listen_statuses(self):
         """Прослушивает сообщения от встречного сервера"""
-        logging.info('Запущена синхронизация статусов с %s', self._suv_name)
+        Logger.info('Запущена синхронизация статусов с %s', self._suv_name)
         try:
             while True:
                 msg = await self._ws.receive()
@@ -64,7 +63,7 @@ class SyncReceiver:
                     continue
 
                 try:
-                    logging.debug(
+                    Logger.debug(
                         'От сервера %s получено сообщение %s', self._suv_name, msg.data
                     )
                     message_parser = MessageParser(msg.data)
@@ -116,7 +115,7 @@ class SyncReceiver:
                 )
             )
         else:
-            logging.debug(
+            Logger.debug(
                 'Успешная публикация сообщения %s с сервера %s',
                 message, self._suv_name
             )

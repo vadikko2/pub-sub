@@ -1,15 +1,14 @@
 import asyncio
-import logging
 from typing import Optional
 
 from aioredis import Channel, Redis
 from async_timeout import timeout
 
-from status_daemon import AsyncRunnableMixin
-from status_daemon.constants import SUB_PATTERN
+from status_daemon import AsyncRunnableMixin, Logger
 from status_daemon.exceptions import MessageDecodeException
 from status_daemon.messages import MessageParser, Message
 from status_daemon.privileges.privileges import Privileges
+from status_daemon.redis.redis import RedisController
 from status_daemon.servers.status.publisher import Publisher
 from status_daemon.status_daemon.constants import Status
 from status_daemon.utils import pattern_to_key
@@ -34,7 +33,7 @@ class Subscriber(AsyncRunnableMixin):
         else:
             raise ValueError('Can`t connect to Redis %s' % redis)
 
-        self._channel_name = pattern_to_key(self._publisher.user.uid, pattern=SUB_PATTERN)
+        self._channel_name = pattern_to_key(self._publisher.user.uid, pattern=RedisController.SUB_PATTERN)
         self._channel = None  # type: Optional[Channel]
 
     async def __aenter__(self):
@@ -51,7 +50,7 @@ class Subscriber(AsyncRunnableMixin):
 
     async def run(self):
         """Прослушивает приходящие статусы, которые необходимо отправить пользователю по WS"""
-        logging.info('Запущено прослушивание статусов абонентом %r', self._publisher.user)
+        Logger.info('Запущено прослушивание статусов абонентом %r', self._publisher.user)
         while True:
             try:
                 async with timeout(1):
@@ -59,7 +58,7 @@ class Subscriber(AsyncRunnableMixin):
                 try:
                     message = MessageParser(message=msg).single_status_data
                 except MessageDecodeException as e:
-                    logging.error('Ошибка парсинга сообщения %s: %s', msg, e)
+                    Logger.error('Ошибка парсинга сообщения %s: %s', msg, e)
                     continue
 
                 if isinstance(message.status, Status):
@@ -75,7 +74,7 @@ class Subscriber(AsyncRunnableMixin):
                         self._publisher.send_message(message=msg_)
                     )
                 else:
-                    logging.warning('В сообщении %s отсутствует статус', message)
+                    Logger.warning('В сообщении %s отсутствует статус', message)
 
             except asyncio.TimeoutError:
                 pass

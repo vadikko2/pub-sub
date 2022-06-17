@@ -1,15 +1,12 @@
 import asyncio
-import logging
 from asyncio import get_event_loop
-from typing import Set, Any
+from typing import Any
 
 from aioredis import Channel
+from async_generator import async_generator, yield_
 from async_timeout import timeout
 
-from status_daemon import BlockingRunnableMixin
-from status_daemon.constants import (
-    WISH_PATTERN, PUB_PATTERN, SUB_PATTERN
-)
+from status_daemon import BlockingRunnableMixin, Logger
 from status_daemon.exceptions import MessageDecodeException, base_exception_handler, call_exception_handler
 from status_daemon.messages import MessageParser, Message
 from status_daemon.redis.redis import RedisController
@@ -32,9 +29,9 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
         """
         Перенаправляет сообщения от отправителя ко всем получателя, перечисленным в self.wishlist
         """
-        logging.info('Запущено перенаправление статусов')
+        Logger.info('Запущено перенаправление статусов')
         channel, = await self.redis.psubscribe(
-            pattern=PUB_PATTERN
+            pattern=RedisController.PUB_PATTERN
         )  # type: Channel
 
         try:
@@ -45,7 +42,7 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
                     try:
                         sender, _ = extract_info_from_key(key=key)  # type: str
                     except MessageDecodeException as e:
-                        logging.error('Ошибка при разборе имени очереди %s: %r', key, e)
+                        Logger.error('Ошибка при разборе имени очереди %s: %r', key, e)
                         continue
 
                     try:
@@ -57,7 +54,7 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
                             message = Message.create_message(msg)
 
                     except Exception as e:
-                        logging.error('Ошибка при разборе сообщения %s из очереди %s: %r', message, key, e)
+                        Logger.error('Ошибка при разборе сообщения %s из очереди %s: %r', message, key, e)
                         continue
 
                     self.loop.create_task(self.send_status(
@@ -77,7 +74,7 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
             return
         finally:
             if not self.redis.closed:
-                await self.redis.punsubscribe(pattern=PUB_PATTERN)
+                await self.redis.punsubscribe(pattern=RedisController.PUB_PATTERN)
             call_exception_handler(
                 loop=self.loop,
                 message='Прослушивание %s остановлено.' % channel.name.decode(encoding='utf-8')
@@ -86,12 +83,12 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
     async def send_status(self, sender: str, message: Any):
         """Рассылает статусы"""
 
-        wishlist = set(await self.load_wishlists(sender=sender) or [])
+        wishlist_generator = self.load_wishlists(sender=sender)
 
-        for receiver in wishlist:
+        async for receiver in wishlist_generator:
             pattern = pattern_to_key(
                 receiver,
-                pattern=SUB_PATTERN
+                pattern=RedisController.SUB_PATTERN
             )
 
             self.loop.create_task(self.send_to_receiver(pattern=pattern, message=message))
@@ -105,16 +102,19 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
                 message='Ошибка при публикации сообщения %s в очередь %s: %s' % (message, pattern, e)
             )
         else:
-            logging.debug('Сообщение %s отправлено в очередь %s', message, pattern)
+            Logger.debug('Сообщение %s отправлено в очередь %s', message, pattern)
 
-    async def load_wishlists(self, sender: str) -> Set[str]:
+    @async_generator
+    async def load_wishlists(self, sender: str):
         """Выгружает wishlist из Redis"""
-        key = pattern_to_key(sender, pattern=WISH_PATTERN)
-        wishlist = await self.redis.smembers(key)
-        result = set()
-        if wishlist:
-            result.update(wishlist)
-        return result
+        key = pattern_to_key(sender, pattern=RedisController.WISH_PATTERN)
+        cursor = b'0'
+
+        while cursor:
+            cursor, wishlist = await self.redis.sscan(key=key, cursor=cursor, match='*')
+
+            for wish in wishlist:
+                await yield_(wish)
 
     @classmethod
     def connect(cls):
@@ -134,6 +134,6 @@ class StatusRoutingDaemon(BlockingRunnableMixin):
             task = self.loop.create_task(self._run_daemon())
             self.loop.run_until_complete(task)
         except KeyboardInterrupt:
-            logging.info('Демон остановлен')
+            Logger.info('Демон остановлен')
         except Exception as e:
-            logging.error('Демон завершил свою работу с ошибкой %r', e)
+            Logger.error('Демон завершил свою работу с ошибкой %r', e)

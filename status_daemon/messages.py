@@ -1,8 +1,8 @@
-import logging
 from typing import Optional, Dict, Set
 
 from ujson import loads, dumps
 
+from status_daemon import Logger
 from status_daemon.exceptions import MessageDecodeException
 from status_daemon.status_daemon.constants import (
     Operation, Status, MessageAttributes
@@ -136,7 +136,7 @@ class MessageParser:
                 try:
                     result.add(Message.extract(item))
                 except Exception as e:
-                    logging.error(
+                    Logger.error(
                         'Ошибка извлечения данных из элемента сообщения %r: %s',
                         item, e
                     )

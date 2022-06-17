@@ -1,6 +1,7 @@
 run.py opt/pvtc/int-status-daemon
 config.py opt/pvtc/int-status-daemon
 config opt/pvtc/int-status-daemon
+cli opt/pvtc/int-status-daemon
 runners opt/pvtc/int-status-daemon
 status_daemon opt/pvtc/int-status-daemon
 integration opt/pvtc/int-status-daemon

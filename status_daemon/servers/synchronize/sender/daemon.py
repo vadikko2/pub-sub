@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from asyncio import gather, get_event_loop, sleep
 from time import sleep as block_sleep
 from typing import Iterable, Set
@@ -9,10 +8,7 @@ from async_generator import async_generator, yield_, asynccontextmanager
 from async_timeout import timeout
 
 from config import settings
-from status_daemon import BlockingConnectableMixin, BlockingRunnableMixin
-from status_daemon.constants import (
-    LOCAL_LAST_PATTERN, DAEMON_KEYSPACE, STATE
-)
+from status_daemon import BlockingConnectableMixin, BlockingRunnableMixin, Logger
 from status_daemon.exceptions import base_exception_handler
 from status_daemon.messages import Message
 from status_daemon.privileges.privileges import Privileges
@@ -61,18 +57,18 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
         """Callback запрашивает все последние статусы локальных
         пользователей и отдает их пакетами"""
 
-        cache_status = await privileges.check_cache_ready()  # type: STATE
-        while not cache_status == STATE.ready:
-            logging.info('Кэш привилегий не готов. Ожидание ...')
+        cache_status = await privileges.check_cache_ready()  # type: bool
+        while not cache_status:
+            Logger.warning('Кэш привилегий не готов. Ожидание ...')
             await sleep(5)
-            cache_status = await privileges.check_cache_ready()  # type: STATE
+            cache_status = await privileges.check_cache_ready()  # type: bool
 
         # получаем список локальных абонентов
         local_users_generator = privileges.get_local()
 
         async for batch in local_users_generator:
             try:
-                keys = [pattern_to_key(uid, pattern=LOCAL_LAST_PATTERN) for uid in batch]
+                keys = [pattern_to_key(uid, pattern=RedisController.LOCAL_LAST_PATTERN) for uid in batch]
                 values = await redis.mget(*keys)
                 statuses = set()
                 for status, uid in zip(values, batch):
@@ -84,7 +80,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
                             status = Status(int(status))
                         statuses.add(Message(status=status, uid=uid))
                     except Exception as e:
-                        logging.error('Ошибка обработки статуса %s пользователя %s', status, e)
+                        Logger.error('Ошибка обработки статуса %s пользователя %s', status, e)
                         statuses.add(Message(status=Status.UNKNOWN, uid=uid))
             except Exception as e:
                 raise ValueError(
@@ -132,12 +128,15 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
         finally:
             if not redis.closed:
                 await redis.punsubscribe(pattern=pattern)
-            logging.info('Прослушивание %s остановлено.', channel.name.decode(encoding='utf-8'))
+            Logger.info('Прослушивание %s остановлено.', channel.name.decode(encoding='utf-8'))
 
     @async_generator
     async def last_status_updates(self):
         """Прослушивает изменение локальных статусов"""
-        pattern = pattern_to_key(self.redis.db, LOCAL_LAST_PATTERN, pattern=DAEMON_KEYSPACE)
+        pattern = pattern_to_key(
+            self.redis.db, RedisController.LOCAL_LAST_PATTERN,
+            pattern=RedisController.DAEMON_KEYSPACE
+        )
         async with self.get_channel(redis=self.redis, pattern=pattern) as channel:
             while True:
                 try:
@@ -153,7 +152,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
                             status=Status(value)
                         )
                     except Exception as e:
-                        logging.error('Ошибка при попытке разбора значения %s по ключу %s: %s', value, key, e)
+                        Logger.error('Ошибка при попытке разбора значения %s по ключу %s: %s', value, key, e)
                         message = Message(uid=uid, status=Status.UNKNOWN)
                 except asyncio.TimeoutError:
                     pass
@@ -165,7 +164,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
         """Прослушивает появление новых локальных абонентов"""
         pattern = pattern_to_key(
             self._privileges.redis.db, self._privileges.LOCAL_USERS_PATTERN,
-            pattern=DAEMON_KEYSPACE
+            pattern=RedisController.DAEMON_KEYSPACE
         )
         local_uids = set()
         async for members in self._privileges.get_local():
@@ -185,7 +184,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
                                     local_uids.add(uid)
                                     await yield_(Message(uid=uid, status=Status.NOT_REGISTERED))
                                 except Exception as e:
-                                    logging.error(
+                                    Logger.error(
                                         'Ошибка при формировании сообщения для нового абонента %s: %s', uid, e
                                     )
 
@@ -197,7 +196,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
                     )
 
     async def _listen_statuses(self):
-        logging.info('Запущено прослушивание изменения статусов локальных абонентов.')
+        Logger.info('Запущено прослушивание изменения статусов локальных абонентов.')
 
         try:
             async for message in merge_async_iters(
@@ -225,7 +224,7 @@ class SyncStatusSenderDaemon(BlockingConnectableMixin, BlockingRunnableMixin):
                 callback=extract_hosts
             ))  # type: Set[str]
             if not len(trusted_host_set):
-                logging.warning(
+                Logger.warning(
                     'Не получено ни одного встречного сервера от сервиса конфигов. '
                     'Повторная попытка через %s секунд...',
                     retry

@@ -1,11 +1,11 @@
-import logging
 from asyncio import CancelledError
 from typing import Optional
 
 from aioredis import Redis
 
-from status_daemon.constants import WISH_PATTERN, PUB_PATTERN
+from status_daemon import Logger
 from status_daemon.messages import Message
+from status_daemon.redis.redis import RedisController
 from status_daemon.status_daemon.constants import Status
 from status_daemon.utils import pattern_to_key, extract_uid_from_key
 
@@ -13,7 +13,7 @@ from status_daemon.utils import pattern_to_key, extract_uid_from_key
 async def has_subscribers(redis: Redis, uid: str) -> bool:
     """Проверяет подписан ли кто-нибудь вообще"""
     try:
-        key = pattern_to_key(uid, pattern=WISH_PATTERN)
+        key = pattern_to_key(uid, pattern=RedisController.WISH_PATTERN)
         subscriber = await redis.srandmember(key)
         return subscriber is not None
     except Exception as e:
@@ -27,7 +27,7 @@ async def flush_and_publish_statuses(
         except_filter: Optional[str] = None
 ):
     """Очищает LAST статусы и уведомляет в очереди PUB"""
-    logging.debug('Производится очистка последних статусов встречных абонентов.')
+    Logger.debug('Производится очистка последних статусов встречных абонентов.')
     try:
         cursor = b'0'
         while cursor:
@@ -44,11 +44,11 @@ async def flush_and_publish_statuses(
                     has_subs = await has_subscribers(redis=redis, uid=uid)  # type: bool
                     if has_subs:
                         await redis.publish(
-                            channel=pattern_to_key(suv_name, uid, pattern=PUB_PATTERN),
+                            channel=pattern_to_key(suv_name, uid, pattern=RedisController.PUB_PATTERN),
                             message=Message.create_message(Message(status=Status.UNKNOWN))
                         )
                 except Exception as e:
-                    logging.error(
+                    Logger.error(
                         'Ошибка при попытке зануления последнего статуса абонента %s: %s',
                         key, e
                     )
@@ -62,7 +62,7 @@ async def flush_and_publish_statuses(
             'Ошибка при очистке последних статусов пользователей: %s' % e
         )
     else:
-        logging.debug(
+        Logger.debug(
             'Успешная очистка статусов по паттерну %s с исключением %s',
             last_pattern, except_filter
         )

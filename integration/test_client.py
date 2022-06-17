@@ -1,4 +1,3 @@
-import logging
 import logging.config
 import socket
 from asyncio import gather, get_event_loop, sleep
@@ -9,6 +8,7 @@ from aiohttp import ClientSession, WSMsgType
 from ujson import dumps
 
 from config import settings
+from status_daemon import Logger
 from status_daemon.messages import Message
 from status_daemon.privileges.privileges import Privileges
 from status_daemon.redis.redis import RedisController
@@ -53,7 +53,7 @@ async def listen_statuses(ws, remote_names: List[str]):
         })
 
         await ws.send_str(subscribe_msg)
-        logging.debug('Отправлен запрос на подписку на пользователей {}'.format(remote_names))
+        Logger.debug('Отправлен запрос на подписку на пользователей {}'.format(remote_names))
 
         while True:
             msg = await ws.receive()  # type: WSMsgType
@@ -63,7 +63,7 @@ async def listen_statuses(ws, remote_names: List[str]):
                     await ws.close()
                     break
                 else:
-                    logging.debug("Получено сообщение: %s" % msg.data)
+                    Logger.debug("Получено сообщение: %s" % msg.data)
             elif msg.tp == WSMsgType.closed:
                 break
             elif msg.tp == WSMsgType.error:
@@ -78,12 +78,12 @@ async def publish_status(ws, status_list: List[int], sleep_: int = 5):
             try:
                 status = Status(item)
             except Exception:
-                logging.error('Неизвестный статус %s' % item)
+                Logger.error('Неизвестный статус %s' % item)
                 continue
             msg = Message.create_message(Message(status=status))
             await sleep(sleep_)  # ждать перед отправкой
             await ws.send_str(msg)
-            logging.info('Опубликовано сообщение: %s' % msg)
+            Logger.info('Опубликовано сообщение: %s' % msg)
 
 
 async def run_client(host: str, port: int, remote_names: List[str], status_list: List[int], sleep_: int = 5):

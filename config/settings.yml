@@ -32,7 +32,7 @@ default:
     disable_existing_loggers: false
     formatters:
       default:
-        format: "[int-status-daemon] %(levelname)-8s# %(filename)s[LINE:%(lineno)d]:  %(message)s"
+        format: "[int-status-daemon] %(levelname)s:  %(message)s"
     handlers:
       syslog:
         class: logging.handlers.SysLogHandler
@@ -52,8 +52,5 @@ default:
         stream: ext://sys.stderr
     loggers:
       default:
-        level: DEBUG
-        handlers: [ console ]
-    root:
-      level: INFO
-      handlers: [ syslog ]
+        level: INFO
+        handlers: [ syslog ]

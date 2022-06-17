@@ -14,6 +14,11 @@
     * Имитатор Web-socket клиента сервиса статусов (`./integration/test_client.py`)
     * Имитатор клиента междоменной синхронизации статусов (`./integration/sync_client.py`)
 
+6. CLI для получения и редактирования статусов (`./status_daemon/cli`). Поддерживает:
+   * Редактирование статуса локального абонента по номеру телефона
+   * Получение статусов абонентов по перечню номеров (или всех при помощи `*`)
+   * Получение номеров телефонов по паттерну
+   * Подписка на получение статусов по паттерну (Например `1000*`)
 ## Развертывание отладочного стенда (`for developers`)
 
 1. Для работы под Astra1.6 использовать Python 3.5.3 (рекомендуется, но не обязательно).
@@ -36,7 +41,7 @@ usage: run.py [-h] [-d | -ws | -rsync | -ssync] [-sc] [-ssh SYNC_SERVER_HOST]
               [-msn MAX_STATUS_NUMBER] [-sst SYNC_SLEEP_TIME] [-tc]
               [-rh REMOTE_HOST] [-p PORT]
               [-rn REMOTE_NAMES [REMOTE_NAMES ...]] [-s STATUS [STATUS ...]]
-              [-sl SLEEP]
+              [-sl SLEEP] [-cli]
 
 Укажите название модуля, который необходимо запустить:
 
@@ -48,6 +53,7 @@ optional arguments:
                         Синхронизация статусов (приемник)
   -ssync, --synchronize-sender
                         Синхронизация статусов (передатчик)
+  -cli                  CLI
 
 Тестовый клиент сервера синхронизации статусов:
   -sc, --sync-client    Запуск клиента сервера синхронизации статусов
@@ -77,10 +83,10 @@ optional arguments:
                         необходимо организовать обмен статусами.
   -s STATUS [STATUS ...], --status STATUS [STATUS ...]
                         Список статусов, которые будут публиковаться.
-                        Возможные значения статусов: { "FORWARDING": 7,
-                        "ENABLE": 1, "UNKNOWN": 8, "NOT_REGISTERED": 3,
-                        "ABSENT": 6, "BUSY": 2, "INCOMING": 4,
-                        "DO_NOT_DISTURB": 5 }.
+                        Возможные значения статусов: { "DO_NOT_DISTURB": 5,
+                        "ABSENT": 6, "UNKNOWN": 8, "INCOMING": 4,
+                        "NOT_REGISTERED": 3, "FORWARDING": 7, "ENABLE": 1,
+                        "BUSY": 2 }.
   -sl SLEEP, --sleep SLEEP
                         Промежуток между публикациями статусов.
 ```

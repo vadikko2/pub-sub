@@ -1,10 +1,10 @@
-import logging
 from asyncio import sleep
 from functools import wraps
 from typing import (
     Tuple
 )
 
+from status_daemon import Logger
 from status_daemon.exceptions import MessageDecodeException
 from status_daemon.servers.status.constants import RETRY
 
@@ -66,18 +66,18 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except (KeyboardInterrupt, RuntimeError) as e:
-                    logging.error('Завершение работы %s с ошибкой %s', func.__name__, e)
+                    Logger.error('Завершение работы %s с ошибкой %s', func.__name__, e)
                     return None
                 except exceptions as e:
-                    logging.error(e)
+                    Logger.error(e)
             while True:
                 try:
                     return await func(*args, **kwargs)
                 except (KeyboardInterrupt, RuntimeError) as e:
-                    logging.error('Завершение работы %s с ошибкой %s', func.__name__, e)
+                    Logger.error('Завершение работы %s с ошибкой %s', func.__name__, e)
                     break
                 except exceptions as e:
-                    logging.error(e)
+                    Logger.error(e)
                 await sleep(retry)
 
         return wrapper

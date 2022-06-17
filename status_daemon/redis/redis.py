@@ -1,4 +1,3 @@
-import logging
 from asyncio import get_event_loop
 from typing import Optional
 
@@ -6,10 +5,19 @@ import aioredis
 from aioredis import Redis
 
 from config import settings
-from status_daemon import AsyncConnectableMixin
+from status_daemon import AsyncConnectableMixin, Logger
 
 
 class RedisController(AsyncConnectableMixin):
+    DAEMON_KEYSPACE = '__keyspace@*__:*'
+    WISH_PATTERN = "WISH@*@"  # таблица с "желаемыми"
+    # для получения статусов uuid-ов абонентов (ключ - отправитель статуса,
+    # значение - список получателей)
+    LAST_PATTERN = "LAST@*@*@"  # Значение последнего статуса
+    LOCAL_LAST_PATTERN = "LAST@local@*@"  # Значение последнего статуса локального абонента
+    PUB_PATTERN = "PUB@*@*@"  # очереди для публикации статусов
+    LOCAL_PUB_PATTERN = "PUB@local@*@"  # очереди для публикации статусов локального абонента
+    SUB_PATTERN = "SUB@*@"  # очереди для получения статусов
 
     def __init__(self, redis_pool: Redis):
         self._loop = get_event_loop()
@@ -32,7 +40,7 @@ class RedisController(AsyncConnectableMixin):
         try:
             pool_string = 'redis://{}:{}'.format(host, port)
             redis = await aioredis.create_redis_pool(pool_string, db=db, encoding='utf-8')  # type: Redis
-            logging.debug('Соединение с %s установлено', redis.address)
+            Logger.debug('Соединение с %s установлено', redis.address)
         except Exception as e:
             raise ConnectionRefusedError(
                 'Ошибка при установке соединения с %s: %s' % ((host, port), e)
@@ -52,7 +60,7 @@ class RedisController(AsyncConnectableMixin):
                     (redis.address, e)
                 )
             else:
-                logging.debug('Соединение с %s закрыто', redis.address)
+                Logger.debug('Соединение с %s закрыто', redis.address)
 
     @classmethod
     async def connect(
@@ -76,7 +84,7 @@ class RedisController(AsyncConnectableMixin):
                 try:
                     await self.pool.delete(*keys)
                 except Exception as e:
-                    logging.error(
+                    Logger.error(
                         'Ошибка при попытке очистить значения по ключами %s: %s',
                         keys, e
                     )

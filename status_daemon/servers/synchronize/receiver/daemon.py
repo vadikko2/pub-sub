@@ -1,11 +1,9 @@
-import logging
 from typing import Any
 
 from aiohttp import web
 
 from config import settings
-from status_daemon import BlockingRunnableWebServer
-from status_daemon.constants import LAST_PATTERN
+from status_daemon import BlockingRunnableWebServer, Logger
 from status_daemon.redis.redis import RedisController
 from status_daemon.servers.synchronize.receiver.handlers import sync_handler
 from status_daemon.servers.utils import flush_and_publish_statuses
@@ -19,7 +17,7 @@ class SyncStatusReceiverDaemon(BlockingRunnableWebServer):
         """Очищает все статусы, приходящие с прослушиваемого сервера"""
         redis = await RedisController.connect()
         await flush_and_publish_statuses(
-            redis=redis.pool, last_pattern=LAST_PATTERN,
+            redis=redis.pool, last_pattern=RedisController.LAST_PATTERN,
             except_filter='LAST@local@'
         )
         await redis.disconnect()
@@ -39,5 +37,5 @@ class SyncStatusReceiverDaemon(BlockingRunnableWebServer):
             port: Any = settings.SYNCHRONIZE.port
     ):
         """Запуск"""
-        logging.info('Запущен WebSocket сервер синхронизации статусов.')
+        Logger.info('Запущен WebSocket сервер синхронизации статусов.')
         web.run_app(app=app, host=host, port=port)

@@ -1,12 +1,11 @@
 import asyncio
-import logging
 from asyncio import Queue, QueueEmpty, get_event_loop
 from typing import Any, Dict, Iterable, Callable, Optional
 
 from aiohttp import ClientSession, ClientWebSocketResponse, ClientConnectionError
 from async_timeout import timeout
 
-from status_daemon import AsyncRunnableMixin, AsyncConnectableMixin
+from status_daemon import AsyncRunnableMixin, AsyncConnectableMixin, Logger
 from status_daemon.exceptions import call_exception_handler, base_exception_handler
 from status_daemon.messages import Message
 from status_daemon.servers.status.constants import SYNC_RETRY
@@ -75,7 +74,7 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
         """Отправляет сообщение на встречный сервер"""
         try:
             await ws_.send_str(data=str_message)
-            logging.debug(
+            Logger.debug(
                 'Сообщение %s успешно передано на сервер %s (%s)',
                 str_message, self.name, self._url
             )
@@ -102,7 +101,7 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                         try:
                             self.loop.create_task(self._send_message(ws_, Message.create_package(message)))
                         except Exception as e:
-                            logging.error(
+                            Logger.error(
                                 'Ошибка при пересылке сообщения %s на сервер %s (%s): %s',
                                 message, self.name, self._url, e
                             )
@@ -114,7 +113,7 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                         )
                     )
 
-                logging.info(
+                Logger.info(
                     'Запущено перенаправление статусов на сервер %s (%s)',
                     self.name, self._url
                 )
@@ -125,7 +124,7 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
                     self._queue.get_nowait()
                     self._queue.task_done()
                 self._queue = None
-                logging.debug('Очередь для сервера %s очищена', self.name)
+                Logger.debug('Очередь для сервера %s очищена', self.name)
             raise ValueError(
                 'Отсутствует соединение с сервером %s (%s): %s' %
                 (self.name, self._url, e)
@@ -156,7 +155,7 @@ class RemoteServerObserver(AsyncRunnableMixin, AsyncConnectableMixin):
         try:
             await self.listen()
         except Exception as e:
-            logging.error(
+            Logger.error(
                 'Ошибка при перенаправлении статусов на сервер %s (%s): %s',
                 self.name, self._url, e
             )

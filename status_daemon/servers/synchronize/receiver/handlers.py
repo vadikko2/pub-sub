@@ -1,9 +1,9 @@
-import logging
 from asyncio import CancelledError
 from typing import Optional
 
 from aiohttp import web
 
+from status_daemon import Logger
 from status_daemon.auth.exceptions import UnauthorizedException
 from status_daemon.auth.sync_auth import SyncAuthenticator
 from status_daemon.raises import raise_auth_error
@@ -23,7 +23,7 @@ async def sync_handler(request: web.Request):
         # ошибка аутентификации при синхронизации серверов
         return raise_auth_error(err=err, request=request)
     except CancelledError:
-        logging.info('Закрыто соединение с %s', request.remote)
+        Logger.info('Закрыто соединение с %s', request.remote)
     finally:
         if isinstance(redis, RedisController):
             await redis.disconnect()
